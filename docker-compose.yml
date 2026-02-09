@@ -47,6 +47,7 @@ services:
       DATABASE_URL: ${DATABASE_URL:-postgresql://subwatch:subwatch@postgres:5432/subwatch?schema=public}
       REDIS_URL: ${REDIS_URL:-redis://redis:6379}
       BOT_TOKEN: ${BOT_TOKEN:-}
+      GIT_SHA: ${GIT_SHA:-unknown}
       TELEGRAM_MODE: ${TELEGRAM_MODE:-polling}
       PUBLIC_BASE_URL: ${PUBLIC_BASE_URL:-}
       TELEGRAM_WEBHOOK_PATH: ${TELEGRAM_WEBHOOK_PATH:-/telegram/webhook}

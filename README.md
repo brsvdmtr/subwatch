@@ -117,7 +117,7 @@ curl http://localhost:3000/health
 Ожидаемый ответ:
 
 ```json
-{"status":"ok","telegramMode":"polling"}
+{"status":"ok","telegramMode":"polling","gitSha":"unknown"}
 ```
 
 ### 2) Создать 2 подписки и проверить списки
@@ -190,6 +190,28 @@ TELEGRAM_SECRET_TOKEN=some-random-secret
 - Если задан `TELEGRAM_SECRET_TOKEN`, сервер проверяет заголовок `X-Telegram-Bot-Api-Secret-Token`.
 
 Быстрая проверка режима: `curl http://localhost:3000/health` (поле `telegramMode`).
+
+## How to verify local -> git -> server
+
+1) Локально: запушить изменения в `main`:
+
+```bash
+git push origin main
+```
+
+2) На сервере (Timeweb console/SSH): запустить деплой:
+
+```bash
+/usr/local/bin/subwatch-deploy
+```
+
+3) Проверить, что на сервере задеплоился нужный коммит:
+
+```bash
+curl -s http://127.0.0.1:3000/health
+```
+
+Поле `gitSha` должно совпасть с `git rev-parse --short HEAD` последнего коммита в `main`.
 
 ## Важные ограничения MVP
 
