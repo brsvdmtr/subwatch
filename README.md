@@ -117,7 +117,7 @@ curl http://localhost:3000/health
 Ожидаемый ответ:
 
 ```json
-{"status":"ok"}
+{"status":"ok","telegramMode":"polling"}
 ```
 
 ### 2) Создать 2 подписки и проверить списки
@@ -154,6 +154,42 @@ docker compose logs -f app
 ```bash
 docker compose exec -T postgres psql -U subwatch -d subwatch -c "SELECT id,title,\"nextChargeAt\" FROM \"Subscription\" ORDER BY \"updatedAt\" DESC LIMIT 5;"
 ```
+
+## Telegram modes
+
+### polling (local/dev, по умолчанию)
+
+Достаточно указать токен:
+
+```env
+BOT_TOKEN=...
+TELEGRAM_MODE=polling
+```
+
+Если в логах видите `409` (conflict), обычно это значит:
+- запущен второй экземпляр бота с тем же `BOT_TOKEN`, или
+- для этого `BOT_TOKEN` включен webhook (в таком режиме `getUpdates`/polling работать не будет).
+
+### webhook (production)
+
+В webhook-режиме Nest поднимает HTTP endpoint и прокидывает апдейты в Telegraf, а на старте выставляет webhook через Telegram API.
+
+Пример env:
+
+```env
+BOT_TOKEN=...
+TELEGRAM_MODE=webhook
+PUBLIC_BASE_URL=https://subwatch.example.com
+TELEGRAM_WEBHOOK_PATH=/telegram/webhook
+TELEGRAM_SECRET_TOKEN=some-random-secret
+```
+
+Требования:
+- `PUBLIC_BASE_URL` должен быть **HTTPS** и доступен из интернета (Telegram не сможет ходить на `localhost`).
+- Ваш reverse-proxy (nginx/caddy) должен проксировать `POST ${TELEGRAM_WEBHOOK_PATH}` в контейнер `subwatch-app:3000`.
+- Если задан `TELEGRAM_SECRET_TOKEN`, сервер проверяет заголовок `X-Telegram-Bot-Api-Secret-Token`.
+
+Быстрая проверка режима: `curl http://localhost:3000/health` (поле `telegramMode`).
 
 ## Важные ограничения MVP
 

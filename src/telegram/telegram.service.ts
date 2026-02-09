@@ -62,6 +62,7 @@ interface ReadySubscriptionDraft {
 }
 
 type SendMessageExtra = Parameters<Telegraf<BotContext>['telegram']['sendMessage']>[2];
+type TelegramMode = 'polling' | 'webhook';
 
 @Injectable()
 export class TelegramService implements OnModuleInit, OnModuleDestroy {
@@ -71,6 +72,7 @@ export class TelegramService implements OnModuleInit, OnModuleDestroy {
 
   private bot?: Telegraf<BotContext>;
   private token?: string;
+  private telegramMode: TelegramMode = 'polling';
   private launchTimer?: NodeJS.Timeout;
   private isLaunching = false;
   private isStopping = false;
@@ -81,7 +83,14 @@ export class TelegramService implements OnModuleInit, OnModuleDestroy {
     private readonly recurrenceService: RecurrenceService
   ) {}
 
+  getTelegramMode(): TelegramMode {
+    return this.telegramMode;
+  }
+
   async onModuleInit(): Promise<void> {
+    this.telegramMode = this.resolveTelegramMode();
+    this.logger.log(`Telegram mode: ${this.telegramMode}`);
+
     const token = process.env.BOT_TOKEN;
 
     if (!token) {
@@ -90,7 +99,12 @@ export class TelegramService implements OnModuleInit, OnModuleDestroy {
     }
 
     this.token = token;
-    this.scheduleLaunch(0);
+
+    if (this.telegramMode === 'webhook') {
+      await this.startWebhookMode();
+    } else {
+      this.scheduleLaunch(0);
+    }
   }
 
   async onModuleDestroy(): Promise<void> {
@@ -118,6 +132,19 @@ export class TelegramService implements OnModuleInit, OnModuleDestroy {
 
     const chatId = typeof telegramId === 'bigint' ? telegramId.toString() : telegramId;
     await this.bot.telegram.sendMessage(chatId as string | number, text, extra);
+  }
+
+  async handleUpdate(update: unknown): Promise<void> {
+    if (!this.bot) {
+      this.logger.warn('Telegram update received but bot is not initialized yet');
+      return;
+    }
+
+    try {
+      await this.bot.handleUpdate(update as never);
+    } catch (error) {
+      this.logger.error(`Failed to handle Telegram update: ${String(error)}`);
+    }
   }
 
   buildReminderInlineKeyboard(subscriptionId: string): NonNullable<SendMessageExtra>['reply_markup'] {
@@ -919,6 +946,66 @@ export class TelegramService implements OnModuleInit, OnModuleDestroy {
     return false;
   }
 
+  private resolveTelegramMode(): TelegramMode {
+    const raw = String(process.env.TELEGRAM_MODE ?? 'polling').trim().toLowerCase();
+    return raw === 'webhook' ? 'webhook' : 'polling';
+  }
+
+  private async startWebhookMode(): Promise<void> {
+    if (!this.token || this.isStopping || this.isLaunching) {
+      return;
+    }
+
+    const baseUrl = String(process.env.PUBLIC_BASE_URL ?? '').trim();
+    const hookPath = String(process.env.TELEGRAM_WEBHOOK_PATH ?? '/telegram/webhook').trim();
+    const secretToken = String(process.env.TELEGRAM_SECRET_TOKEN ?? '').trim() || undefined;
+
+    if (!baseUrl) {
+      this.logger.error('PUBLIC_BASE_URL is not set. Telegram webhook mode is enabled but webhook cannot be configured.');
+      return;
+    }
+
+    if (!hookPath) {
+      this.logger.error(
+        'TELEGRAM_WEBHOOK_PATH is not set. Telegram webhook mode is enabled but webhook cannot be configured.'
+      );
+      return;
+    }
+
+    let webhookUrl: string;
+
+    try {
+      webhookUrl = new URL(hookPath, baseUrl).toString();
+    } catch (error) {
+      this.logger.error(`Invalid webhook URL parts: baseUrl=${baseUrl}, hookPath=${hookPath}. ${String(error)}`);
+      return;
+    }
+
+    this.isLaunching = true;
+    const bot = new Telegraf<BotContext>(this.token);
+    this.registerHandlers(bot);
+    this.bot = bot;
+
+    try {
+      await bot.telegram.setWebhook(
+        webhookUrl,
+        {
+          drop_pending_updates: true,
+          ...(secretToken ? { secret_token: secretToken } : {})
+        } as never
+      );
+
+      this.logger.log(`Telegram bot started in webhook mode. Webhook URL: ${webhookUrl}`);
+      if (secretToken) {
+        this.logger.log('Telegram webhook secret token is enabled');
+      }
+    } catch (error) {
+      this.logger.error(`Failed to set Telegram webhook (${webhookUrl}): ${String(error)}`);
+    } finally {
+      this.isLaunching = false;
+    }
+  }
+
   private async launchBot(): Promise<void> {
     if (!this.token || this.isStopping || this.isLaunching) {
       return;
@@ -931,12 +1018,14 @@ export class TelegramService implements OnModuleInit, OnModuleDestroy {
 
     try {
       await bot.launch(() => {
-        this.logger.log('Telegram bot started');
+        this.logger.log('Telegram bot started (polling mode)');
       });
     } catch (error) {
       const errorText = String(error);
       if (errorText.includes('409')) {
-        this.logger.warn(`Telegram polling conflict (409). Retrying in ${this.reconnectDelayMs / 1000}s...`);
+        this.logger.warn(
+          `Telegram polling conflict (409). Вероятно запущен второй экземпляр бота или для этого BOT_TOKEN включен webhook. Retrying in ${this.reconnectDelayMs / 1000}s...`
+        );
       } else {
         this.logger.error(`Failed to start Telegram bot: ${errorText}`);
       }
