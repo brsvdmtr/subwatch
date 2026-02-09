@@ -1,0 +1,55 @@
+services:
+  postgres:
+    image: postgres:16-alpine
+    container_name: subwatch-postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB:-subwatch}
+      POSTGRES_USER: ${POSTGRES_USER:-subwatch}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-subwatch}
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-subwatch} -d ${POSTGRES_DB:-subwatch}"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  redis:
+    image: redis:7-alpine
+    container_name: subwatch-redis
+    restart: unless-stopped
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis_data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  app:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: subwatch-app
+    restart: unless-stopped
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    environment:
+      PORT: ${PORT:-3000}
+      DATABASE_URL: ${DATABASE_URL:-postgresql://subwatch:subwatch@postgres:5432/subwatch?schema=public}
+      REDIS_URL: ${REDIS_URL:-redis://redis:6379}
+      BOT_TOKEN: ${BOT_TOKEN:-}
+    ports:
+      - "3000:3000"
+
+volumes:
+  postgres_data:
+  redis_data:
