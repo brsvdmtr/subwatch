@@ -1,0 +1,131 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+enum SpaceType {
+  PERSONAL
+  FAMILY
+}
+
+enum SpaceMemberRole {
+  OWNER
+  MEMBER
+}
+
+enum SubscriptionStatus {
+  ACTIVE
+  PAUSED
+  CANCELLED
+}
+
+enum RecurrenceType {
+  MONTHLY_BY_DAY
+  EVERY_N_DAYS
+  YEARLY
+}
+
+enum ReminderType {
+  BEFORE
+  DAY_OF
+}
+
+enum ReminderEventStatus {
+  PLANNED
+  SENT
+  SKIPPED
+  FAILED
+}
+
+model User {
+  id          String        @id @default(cuid())
+  telegramId  BigInt        @unique
+  firstName   String?
+  lastName    String?
+  username    String?
+  createdAt   DateTime      @default(now())
+  ownedSpaces Space[]
+  memberships SpaceMember[]
+}
+
+model Space {
+  id              String         @id @default(cuid())
+  type            SpaceType
+  title           String
+  ownerId         String
+  currencyDefault String         @default("RUB")
+  timezone        String         @default("Europe/Moscow")
+  createdAt       DateTime       @default(now())
+  owner           User           @relation(fields: [ownerId], references: [id], onDelete: Cascade)
+  members         SpaceMember[]
+  subscriptions   Subscription[]
+  reminderRules   ReminderRule[]
+}
+
+model SpaceMember {
+  id        String          @id @default(cuid())
+  spaceId   String
+  userId    String
+  role      SpaceMemberRole
+  createdAt DateTime        @default(now())
+  space     Space           @relation(fields: [spaceId], references: [id], onDelete: Cascade)
+  user      User            @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([spaceId, userId])
+}
+
+model Subscription {
+  id             String             @id @default(cuid())
+  spaceId        String
+  title          String
+  amountCents    Int
+  currency       String
+  category       String
+  tags           String[]
+  status         SubscriptionStatus
+  note           String?
+  manageUrl      String?
+  recurrenceType RecurrenceType
+  recurrenceJson Json
+  nextChargeAt   DateTime
+  createdAt      DateTime           @default(now())
+  updatedAt      DateTime           @updatedAt
+  space          Space              @relation(fields: [spaceId], references: [id], onDelete: Cascade)
+  reminderEvents ReminderEvent[]
+
+  @@index([spaceId, status, nextChargeAt])
+}
+
+model ReminderRule {
+  id            String       @id @default(cuid())
+  spaceId       String
+  type          ReminderType
+  offsetMinutes Int
+  dayOfTime     String?
+  enabled       Boolean      @default(true)
+  createdAt     DateTime     @default(now())
+  space         Space        @relation(fields: [spaceId], references: [id], onDelete: Cascade)
+
+  @@unique([spaceId, type])
+  @@index([spaceId])
+}
+
+model ReminderEvent {
+  id             String              @id @default(cuid())
+  subscriptionId String
+  plannedAt      DateTime
+  type           ReminderType
+  status         ReminderEventStatus @default(PLANNED)
+  error          String?
+  createdAt      DateTime            @default(now())
+  sentAt         DateTime?
+  subscription   Subscription        @relation(fields: [subscriptionId], references: [id], onDelete: Cascade)
+
+  @@unique([subscriptionId, plannedAt, type])
+  @@index([status, plannedAt])
+  @@index([subscriptionId])
+}
